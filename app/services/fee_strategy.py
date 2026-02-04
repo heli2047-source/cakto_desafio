@@ -44,3 +44,8 @@ def get_fee_percentage(payment_method: str, installments: int) -> Decimal:
     if not strategy:
         raise ValueError(f"unsupported payment_method: {payment_method}")
     return strategy.percentage(installments)
+
+
+def supported_payment_methods():
+    """Return a list of registered payment method names (lowercased)."""
+    return list(_fee_registry.keys())
