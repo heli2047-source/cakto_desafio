@@ -4,6 +4,11 @@ from rest_framework import status
 from .serializers import PaymentRequestSerializer
 from decimal import Decimal
 from app.services.split_calculator import SimpleSplitCalculator, SplitCalculationError
+from app.services.payment_validator import (
+    PaymentValidationError,
+    validate_payment_request_data,
+    validate_payment_method,
+)
 from app.models import Payment, LedgerEntry, OutboxEvent
 import uuid
 
@@ -18,9 +23,10 @@ class QuoteView(APIView):
         if data["currency"] != "BRL":
             return Response({"detail": "unsupported currency"}, status=status.HTTP_400_BAD_REQUEST)
 
-        pm = data["payment_method"].lower()
-        if pm not in ("pix", "card"):
-            return Response({"detail": "unsupported payment_method"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        try:
+            validate_payment_request_data(data)
+        except PaymentValidationError as e:
+            return Response({"detail": str(e)}, status=e.status_code)
 
         calc = SimpleSplitCalculator()
         try:
@@ -64,28 +70,15 @@ class PaymentView(APIView):
                 else:
                     return Response({"detail": "Idempotency key conflict: different payload"}, status=status.HTTP_409_CONFLICT)
 
-        # validations
-        if data["currency"] != "BRL":
-            return Response({"detail": "unsupported currency"}, status=status.HTTP_400_BAD_REQUEST)
 
-        pm = data["payment_method"].lower()
-        if pm not in ("pix", "card"):
-            return Response({"detail": "unsupported payment_method"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
-
-        if pm == "pix" and data.get("installments"):
-            return Response({"detail": "PIX does not accept installments"}, status=status.HTTP_400_BAD_REQUEST)
+        # centralized validation
+        try:
+            validate_payment_request_data(data)
+        except PaymentValidationError as e:
+            return Response({"detail": str(e)}, status=e.status_code)
 
         splits = data["splits"]
-        if not (1 <= len(splits) <= 5):
-            return Response({"detail": "splits must be between 1 and 5"}, status=status.HTTP_400_BAD_REQUEST)
-        total_pct = sum(s["percent"] for s in splits)
-        if total_pct != 100:
-            return Response({"detail": "sum of percents must be 100"}, status=status.HTTP_400_BAD_REQUEST)
-
         installments = data.get("installments") or 1
-        if pm == "card":
-            if not (1 <= installments <= 12):
-                return Response({"detail": "card installments must be between 1 and 12"}, status=status.HTTP_400_BAD_REQUEST)
 
         calc = SimpleSplitCalculator()
         try:
