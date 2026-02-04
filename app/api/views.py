@@ -10,6 +10,7 @@ from app.services.payment_validator import (
     validate_payment_method,
 )
 from app.models import Payment, LedgerEntry, OutboxEvent
+from django.db import transaction
 import uuid
 
 
@@ -86,27 +87,28 @@ class PaymentView(APIView):
         except SplitCalculationError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # persist
+        # persist within a DB transaction: if any write fails, rollback everything
         payment_id = f"pmt_{uuid.uuid4().hex[:8]}"
-        payment = Payment.objects.create(
-            payment_id=payment_id,
-            status="captured",
-            gross_amount=Decimal(result["gross_amount"]),
-            platform_fee_amount=Decimal(result["platform_fee_amount"]),
-            net_amount=Decimal(result["net_amount"]),
-            payment_method=data["payment_method"],
-            installments=installments,
-            idempotency_key=idemp_key,
-            request_body=request.data,
-        )
+        with transaction.atomic():
+            payment = Payment.objects.create(
+                payment_id=payment_id,
+                status="captured",
+                gross_amount=Decimal(result["gross_amount"]),
+                platform_fee_amount=Decimal(result["platform_fee_amount"]),
+                net_amount=Decimal(result["net_amount"]),
+                payment_method=data["payment_method"],
+                installments=installments,
+                idempotency_key=idemp_key,
+                request_body=request.data,
+            )
 
-        receivables = []
-        for r in result["receivables"]:
-            amount_r = Decimal(r["amount"])
-            LedgerEntry.objects.create(payment=payment, recipient_id=r["recipient_id"], role=r.get("role"), amount=amount_r)
-            receivables.append({"recipient_id": r["recipient_id"], "role": r.get("role"), "amount": r["amount"]})
+            receivables = []
+            for r in result["receivables"]:
+                amount_r = Decimal(r["amount"])
+                LedgerEntry.objects.create(payment=payment, recipient_id=r["recipient_id"], role=r.get("role"), amount=amount_r)
+                receivables.append({"recipient_id": r["recipient_id"], "role": r.get("role"), "amount": r["amount"]})
 
-        outbox = OutboxEvent.objects.create(type="payment_captured", payload={"payment_id": payment.payment_id, "status": "captured"}, status="pending")
+            outbox = OutboxEvent.objects.create(type="payment_captured", payload={"payment_id": payment.payment_id, "status": "captured"}, status="pending")
 
         resp = {
             "payment_id": payment.payment_id,
