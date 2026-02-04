@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
-from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
-from typing import List, Dict, Tuple
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
+from typing import Dict, List, Tuple
+
+from .fee_strategy import get_fee_percentage
 
 
 class SplitCalculatorInterface(ABC):
@@ -13,54 +15,33 @@ class SplitCalculationError(Exception):
     pass
 
 
-class SimpleSplitCalculator(SplitCalculatorInterface):
-    """Calculates platform fee, net amount and receivables following the rules:
-    - PIX: 0%
-    - CARD 1x: 3.99%
-    - CARD 2x-12x: 4.99% + 2% * (installments - 1)
-    Rounding: uses Decimal with 2 places; any cent rounding difference goes to role='producer' or highest percent.
-    """
 
-    def _platform_fee_pct(self, payment_method: str, installments: int) -> Decimal:
-        if payment_method.lower() == "pix":
-            return Decimal("0.00")
-        if installments == 1:
-            return Decimal("3.99")
-        return Decimal("4.99") + Decimal("2.00") * Decimal(installments - 1)
+
+class SimpleSplitCalculator(SplitCalculatorInterface):
+    """Calculates platform fee, net amount and receivables following the rules.
+
+    The calculator is open for extension: support for new payment methods
+    is achieved by registering a `FeeStrategy` in `app.services.fee_strategy`.
+    """
 
     def calculate(self, *, amount: Decimal, payment_method: str, installments: int, splits: List[Dict]) -> Dict:
         if amount <= 0:
             raise SplitCalculationError("amount must be > 0")
 
-        pct = self._platform_fee_pct(payment_method, installments)
+        try:
+            pct = get_fee_percentage(payment_method, installments)
+        except ValueError as e:
+            raise SplitCalculationError(str(e))
         platform_fee = (pct / Decimal("100")) * amount
         platform_fee = platform_fee.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
         net = (amount - platform_fee).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
+        
         # compute receivables
-        receivables: List[Dict] = []
-        total = Decimal("0.00")
-        for s in splits:
-            share = (net * (Decimal(s["percent"]) / Decimal("100"))).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-            receivables.append({"recipient_id": s["recipient_id"], "role": s.get("role"), "amount": share})
-            total += share
+        receivables, total = self._compute_receivables(net, splits)
 
-        # distribute remainder cents
-        diff = net - total
-        if diff != Decimal("0.00"):
-            # find producer
-            producer_idx = None
-            max_pct = None
-            for idx, s in enumerate(splits):
-                if s.get("role") == "producer":
-                    producer_idx = idx
-                    break
-                if max_pct is None or s["percent"] > max_pct:
-                    max_pct = s["percent"]
-                    max_idx = idx
-            target_idx = producer_idx if producer_idx is not None else max_idx
-            receivables[target_idx]["amount"] = (receivables[target_idx]["amount"] + diff).quantize(Decimal("0.01"))
+        # distribute remainder cents (if any)
+        self._distribute_remainder(receivables, total, net, splits)
 
         # convert amounts to strings for JSON safety
         out_receivables = [
@@ -74,3 +55,31 @@ class SimpleSplitCalculator(SplitCalculatorInterface):
             "net_amount": f"{net:.2f}",
             "receivables": out_receivables,
         }
+
+    def _compute_receivables(self, net: Decimal, splits: List[Dict]) -> Tuple[List[Dict], Decimal]:
+        receivables: List[Dict] = []
+        total = Decimal("0.00")
+        for s in splits:
+            share = (net * (Decimal(s["percent"]) / Decimal("100"))).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            receivables.append({"recipient_id": s["recipient_id"], "role": s.get("role"), "amount": share})
+            total += share
+        return receivables, total
+
+    def _distribute_remainder(self, receivables: List[Dict], total: Decimal, net: Decimal, splits: List[Dict]) -> None:
+        diff = net - total
+        if diff == Decimal("0.00"):
+            return
+
+        producer_idx = None
+        max_pct = None
+        max_idx = 0
+        for idx, s in enumerate(splits):
+            if s.get("role") == "producer":
+                producer_idx = idx
+                break
+            if max_pct is None or s["percent"] > max_pct:
+                max_pct = s["percent"]
+                max_idx = idx
+
+        target_idx = producer_idx if producer_idx is not None else max_idx
+        receivables[target_idx]["amount"] = (receivables[target_idx]["amount"] + diff).quantize(Decimal("0.01"))
