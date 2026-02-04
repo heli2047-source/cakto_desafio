@@ -12,7 +12,7 @@ class PaymentsTests(APITestCase):
             "payment_method": "pix",
             "splits": [{"recipient_id": "producer_1", "role": "producer", "percent": 100}],
         }
-        r = self.client.post(self.base_url, payload, format="json")
+        r = self.client.post(self.base_url, payload, format="json", HTTP_IDEMPOTENCY_KEY="key-pix-100")
         self.assertEqual(r.status_code, 201)
         self.assertEqual(r.data["platform_fee_amount"], "0.00")
         self.assertEqual(r.data["net_amount"], "100.00")
@@ -29,7 +29,7 @@ class PaymentsTests(APITestCase):
                 {"recipient_id": "affiliate_9", "role": "affiliate", "percent": 30},
             ],
         }
-        r = self.client.post(self.base_url, payload, format="json")
+        r = self.client.post(self.base_url, payload, format="json", HTTP_IDEMPOTENCY_KEY="key-card-3x")
         self.assertEqual(r.status_code, 201)
         self.assertEqual(r.data["platform_fee_amount"], "26.70")
         self.assertEqual(r.data["net_amount"], "270.30")
@@ -49,7 +49,7 @@ class PaymentsTests(APITestCase):
                 {"recipient_id": "affiliate_1", "role": "affiliate", "percent": 50},
             ],
         }
-        r = self.client.post(self.base_url, payload, format="json")
+        r = self.client.post(self.base_url, payload, format="json", HTTP_IDEMPOTENCY_KEY="key-rounding")
         self.assertEqual(r.status_code, 201)
         # net 100.01, split 50/50 -> halves 50.005 -> rounding makes 50.00 and 50.00, diff 0.01 goes to producer
         self.assertEqual(r.data["receivables"][0]["amount"], "50.01")
