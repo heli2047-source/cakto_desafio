@@ -38,6 +38,10 @@ class PaymentView(APIView):
 
         idemp_key = request.headers.get("Idempotency-Key")
 
+        # Idempotency key is required and must not be blank
+        if not idemp_key:
+            return Response({"detail": "Idempotency-Key header required"}, status=status.HTTP_400_BAD_REQUEST)
+
         # idempotency handling
         if idemp_key:
             existing = Payment.objects.filter(idempotency_key=idemp_key).first()
