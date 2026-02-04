@@ -36,7 +36,7 @@ def api_playground(request):
       try{
         const resp = await fetch(path, {method:'POST', headers, body: JSON.stringify(body)});
         const text = await resp.text();
-        out.textContent = 'Status: '+resp.status+'\n'+text;
+        out.textContent = 'Status: '+resp.status+'\\n'+text;
       }catch(e){ out.textContent = 'Fetch error: '+e }
     }
     </script>
