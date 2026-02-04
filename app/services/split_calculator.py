@@ -12,27 +12,24 @@ class SplitCalculatorInterface(ABC):
 class SplitCalculationError(Exception):
     pass
 
+from .fee_strategy import get_fee_percentage
+
 
 class SimpleSplitCalculator(SplitCalculatorInterface):
-    """Calculates platform fee, net amount and receivables following the rules:
-    - PIX: 0%
-    - CARD 1x: 3.99%
-    - CARD 2x-12x: 4.99% + 2% * (installments - 1)
-    Rounding: uses Decimal with 2 places; any cent rounding difference goes to role='producer' or highest percent.
-    """
+    """Calculates platform fee, net amount and receivables following the rules.
 
-    def _platform_fee_pct(self, payment_method: str, installments: int) -> Decimal:
-        if payment_method.lower() == "pix":
-            return Decimal("0.00")
-        if installments == 1:
-            return Decimal("3.99")
-        return Decimal("4.99") + Decimal("2.00") * Decimal(installments - 1)
+    The calculator is now open for extension: support for new payment methods
+    is achieved by registering a `FeeStrategy` in `app.services.fee_strategy`.
+    """
 
     def calculate(self, *, amount: Decimal, payment_method: str, installments: int, splits: List[Dict]) -> Dict:
         if amount <= 0:
             raise SplitCalculationError("amount must be > 0")
 
-        pct = self._platform_fee_pct(payment_method, installments)
+        try:
+            pct = get_fee_percentage(payment_method, installments)
+        except ValueError as e:
+            raise SplitCalculationError(str(e))
         platform_fee = (pct / Decimal("100")) * amount
         platform_fee = platform_fee.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
