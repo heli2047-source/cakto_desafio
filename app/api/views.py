@@ -18,6 +18,10 @@ class QuoteView(APIView):
         if data["currency"] != "BRL":
             return Response({"detail": "unsupported currency"}, status=status.HTTP_400_BAD_REQUEST)
 
+        pm = data["payment_method"].lower()
+        if pm not in ("pix", "card"):
+            return Response({"detail": "unsupported payment_method"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
         calc = SimpleSplitCalculator()
         try:
             result = calc.calculate(amount=amount, payment_method=data["payment_method"], installments=data.get("installments") or 1, splits=data["splits"])
@@ -60,7 +64,11 @@ class PaymentView(APIView):
         if data["currency"] != "BRL":
             return Response({"detail": "unsupported currency"}, status=status.HTTP_400_BAD_REQUEST)
 
-        if data["payment_method"].lower() == "pix" and data.get("installments"):
+        pm = data["payment_method"].lower()
+        if pm not in ("pix", "card"):
+            return Response({"detail": "unsupported payment_method"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        if pm == "pix" and data.get("installments"):
             return Response({"detail": "PIX does not accept installments"}, status=status.HTTP_400_BAD_REQUEST)
 
         splits = data["splits"]
@@ -71,7 +79,7 @@ class PaymentView(APIView):
             return Response({"detail": "sum of percents must be 100"}, status=status.HTTP_400_BAD_REQUEST)
 
         installments = data.get("installments") or 1
-        if data["payment_method"].lower() == "card":
+        if pm == "card":
             if not (1 <= installments <= 12):
                 return Response({"detail": "card installments must be between 1 and 12"}, status=status.HTTP_400_BAD_REQUEST)
 
