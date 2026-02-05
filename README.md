@@ -115,6 +115,12 @@ Outros cenários a testar:
 - Idempotência: o endpoint `/payments` aceita header `Idempotency-Key`. Se uma `Payment` com a mesma chave existir e o `request_body` for igual, retorna o mesmo resultado sem duplicar (200). Se a chave existir com payload diferente retorna `409 Conflict`.
 - Split calculator: criado como abstração `SplitCalculatorInterface` em `app/services/split_calculator.py` e implementado `SimpleSplitCalculator`. O core depende de abstrações, seguindo DIP.
  - Persistência mínima: modelos `Payment`, `LedgerEntry`, `OutboxEvent` em `app/models.py`.
+ - Métricas que colocaria em produção
+    - Taxa de sucesso de confirmações
+    - Latência P95 das confirmações
+    - Taxa de conflitos de idempotência
+    - Outbox backlog / tempo médio até publicação
+    - Alert rule — discrepância contábil
 
 
 
