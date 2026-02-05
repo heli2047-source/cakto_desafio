@@ -4,6 +4,8 @@ Projeto que implementa um mini split engine conforme o desafio.
 
 **Como rodar**:
 
+Maquina local usando linux wsl:
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -11,6 +13,8 @@ pip install -r requirements.txt
 python manage.py migrate
 python manage.py runserver
 ```
+
+**Informações da API**
 
 API:
 - `POST /api/v1/checkout/quote` - retorna cálculo sem persistir.
